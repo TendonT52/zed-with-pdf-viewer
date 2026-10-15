@@ -18,7 +18,10 @@ allowed=(
     crates/remote/src/transport/wsl.rs
 )
 
-upstream="$(script/pdf-viewer/upstream-version)"
+if ! upstream="$(script/pdf-viewer/upstream-version 2>/dev/null)"; then
+    echo "error: no upstream Zed release tag in this checkout; fetch full history with tags (fetch-depth: 0)" >&2
+    exit 1
+fi
 root="$(pwd)"
 tree="$(cargo tree --package remote_server --edges normal,build --target all --prefix none --format '{p}')"
 
