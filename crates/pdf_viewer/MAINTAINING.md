@@ -74,7 +74,8 @@ The script builds `zed` and `cli` in release mode on the dev channel, bundles th
 Release profile overrides (no LTO, 16 codegen units, no debug info) keep the build within CI runners' memory and time; override the `CARGO_PROFILE_RELEASE_*` variables to change that.
 
 The app is ad-hoc signed and not notarized, because notarization needs a paid Apple Developer account.
-macOS therefore quarantines downloaded copies; users clear it with `xattr -dr com.apple.quarantine "/Applications/Zed with PDF Viewer.app"` or with "Open Anyway" in System Settings.
+macOS therefore quarantines downloaded copies; users clear it with "Open Anyway" in System Settings, Privacy & Security, or with `xattr -dr com.apple.quarantine "/Applications/Zed with PDF Viewer.app"`.
+On recent macOS that command fails with "Operation not permitted" until the terminal is allowed under Privacy & Security, App Management, because changing apps in /Applications is protected.
 With a Developer ID, signing and notarizing would follow upstream's `script/bundle-mac`.
 
 ## Releasing

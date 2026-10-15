@@ -27,14 +27,16 @@ It tracks upstream Zed: every new stable Zed release is picked up automatically,
 
 1. Download the DMG for your Mac from the [latest release](https://github.com/TendonT52/zed-with-pdf-viewer/releases/latest): `aarch64` for Apple Silicon, `x86_64` for Intel.
 2. Open the DMG and drag **Zed with PDF Viewer** into Applications.
-3. The app is not notarized by Apple, so macOS blocks the first launch.
-   Run this once in Terminal:
+3. The app is not notarized by Apple, so on first launch macOS says it "could not verify" the app.
+   Click **Done** (not Move to Trash), then either:
+   - open System Settings, Privacy & Security, scroll down and click **Open Anyway**, or
+   - run this once in Terminal:
 
-   ```bash
-   xattr -dr com.apple.quarantine "/Applications/Zed with PDF Viewer.app"
-   ```
+     ```bash
+     xattr -dr com.apple.quarantine "/Applications/Zed with PDF Viewer.app"
+     ```
 
-   Alternatively, try to open the app, then go to System Settings, Privacy & Security, and click **Open Anyway**.
+     If it prints "Operation not permitted", macOS is asking for permission to modify apps: allow your terminal under System Settings, Privacy & Security, App Management (or accept the prompt), then run it again.
 
 The app installs next to the official Zed and does not replace it.
 Both share your settings, keymaps, themes and extensions in `~/.config/zed`.

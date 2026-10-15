@@ -93,11 +93,14 @@ jobs:
             echo "Zed ${base#v} with a built-in PDF viewer."
             echo
             echo "Download the DMG for your Mac: \`aarch64\` for Apple Silicon, \`x86_64\` for Intel."
-            echo "The app is not notarized by Apple. After dragging it to Applications, open it once with"
+            echo "The app is not notarized by Apple, so macOS blocks the first launch."
+            echo "Click **Done** on the warning, then click **Open Anyway** in System Settings, Privacy & Security, or run"
             echo
             echo '```'
             echo 'xattr -dr com.apple.quarantine "/Applications/Zed with PDF Viewer.app"'
             echo '```'
+            echo
+            echo "If that prints \"Operation not permitted\", allow your terminal under Privacy & Security, App Management, and run it again."
             echo
             echo "Upstream release notes: https://github.com/zed-industries/zed/releases/tag/${base}"
           } > "${notes}"
