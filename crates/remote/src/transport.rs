@@ -21,15 +21,39 @@ pub mod mock;
 pub mod ssh;
 pub mod wsl;
 
-/// Returns the release channel whose remote server this build installs on remote hosts.
+/// Returns the release channel and version of the remote server this build installs.
 ///
 /// A build can set `ZED_REMOTE_SERVER_RELEASE_CHANNEL` at compile time to install the
 /// official server of another channel. Forks that rebrand a stable release as a "dev"
 /// build use this to get the matching stable server instead of failing to find one.
-fn remote_server_release_channel(client_channel: ReleaseChannel) -> ReleaseChannel {
-    option_env!("ZED_REMOTE_SERVER_RELEASE_CHANNEL")
-        .and_then(|channel| channel.parse().ok())
-        .unwrap_or(client_channel)
+fn remote_server_release(
+    client_channel: ReleaseChannel,
+    client_version: semver::Version,
+) -> (ReleaseChannel, semver::Version) {
+    official_remote_server_release(
+        option_env!("ZED_REMOTE_SERVER_RELEASE_CHANNEL"),
+        client_channel,
+        client_version,
+    )
+}
+
+fn official_remote_server_release(
+    server_channel: Option<&str>,
+    client_channel: ReleaseChannel,
+    client_version: semver::Version,
+) -> (ReleaseChannel, semver::Version) {
+    match server_channel.and_then(|channel| channel.parse().ok()) {
+        Some(server_channel) => {
+            // The official server depends only on the upstream release, so builds of the
+            // same release share one server instead of each installing its own copy
+            // named after the build's commit.
+            let mut version = client_version;
+            version.pre = semver::Prerelease::EMPTY;
+            version.build = semver::BuildMetadata::EMPTY;
+            (server_channel, version)
+        }
+        None => (client_channel, client_version),
+    }
 }
 
 /// Parses the output of `uname -sm` to determine the remote platform.
@@ -537,6 +561,30 @@ async fn which(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn official_remote_server_release_drops_the_build_from_the_version() {
+        let version = semver::Version::parse("1.24.2+dev.243d3bc").unwrap();
+        assert_eq!(
+            super::official_remote_server_release(
+                Some("stable"),
+                release_channel::ReleaseChannel::Dev,
+                version.clone()
+            ),
+            (
+                release_channel::ReleaseChannel::Stable,
+                semver::Version::new(1, 24, 2)
+            )
+        );
+        assert_eq!(
+            super::official_remote_server_release(
+                None,
+                release_channel::ReleaseChannel::Dev,
+                version.clone()
+            ),
+            (release_channel::ReleaseChannel::Dev, version)
+        );
+    }
+
     use super::*;
 
     #[test]

@@ -82,11 +82,9 @@ impl DockerExecConnection {
             shell: "sh".to_owned(),
         };
         let (release_channel, version, commit) = cx.update(|cx| {
-            (
-                super::remote_server_release_channel(ReleaseChannel::global(cx)),
-                AppVersion::global(cx),
-                AppCommitSha::try_global(cx),
-            )
+            let (release_channel, version) =
+                super::remote_server_release(ReleaseChannel::global(cx), AppVersion::global(cx));
+            (release_channel, version, AppCommitSha::try_global(cx))
         });
         let remote_platform = this.check_remote_platform().await?;
 

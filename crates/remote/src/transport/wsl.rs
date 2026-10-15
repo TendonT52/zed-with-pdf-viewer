@@ -72,10 +72,7 @@ impl WslRemoteConnection {
             connection_options.user
         );
         let (release_channel, version) = cx.update(|cx| {
-            (
-                super::remote_server_release_channel(ReleaseChannel::global(cx)),
-                AppVersion::global(cx),
-            )
+            super::remote_server_release(ReleaseChannel::global(cx), AppVersion::global(cx))
         });
 
         let mut this = Self {

@@ -825,10 +825,7 @@ impl SshRemoteConnection {
         };
 
         let (release_channel, version) = cx.update(|cx| {
-            (
-                super::remote_server_release_channel(ReleaseChannel::global(cx)),
-                AppVersion::global(cx),
-            )
+            super::remote_server_release(ReleaseChannel::global(cx), AppVersion::global(cx))
         });
         this.remote_binary_path = Some(
             this.ensure_server_binary(&delegate, release_channel, version, cx)

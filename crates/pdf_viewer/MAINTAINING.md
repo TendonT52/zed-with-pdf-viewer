@@ -83,7 +83,8 @@ With a Developer ID, signing and notarizing would follow upstream's `script/bund
 
 Dev-channel builds of Zed never download a remote server, so out of the box the fork could not open SSH, WSL or container projects.
 `bundle-mac` sets `ZED_REMOTE_SERVER_RELEASE_CHANNEL=stable`, which makes the app install the official `zed-remote-server` of the Zed release it is built on, exactly as stock Zed does.
-The only fork code involved is `remote_server_release_channel` in `crates/remote/src/transport.rs` and its three call sites.
+The only fork code involved is `remote_server_release` in `crates/remote/src/transport.rs` and its three call sites.
+The server is named after the upstream version only (`zed-remote-server-stable-1.24.2`), so every fork build of one Zed release shares the server already installed on a host.
 
 That server is only correct while the fork leaves every crate it is built from untouched.
 `script/pdf-viewer/check-remote-server-parity` fails when a fork commit changes one of those crates, or pulls a dependency version into the server that upstream does not use.
