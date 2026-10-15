@@ -223,3 +223,33 @@ async fn moving_the_mouse_without_a_button_does_not_pan(cx: &mut TestAppContext)
         assert!(view.drag_position.is_none());
     });
 }
+
+#[gpui::test]
+async fn opens_a_pdf_opened_on_its_own(cx: &mut TestAppContext) {
+    if let Err(error) = kkpdf_zed::PdfWorker::global() {
+        eprintln!("skipping: {error}");
+        return;
+    }
+    init_test(cx);
+    cx.executor().allow_parking();
+
+    // Opening a single file (Finder, `zed file.pdf`) makes the file itself the
+    // worktree root, so its path inside the worktree is empty.
+    let fs = FakeFs::new(cx.executor());
+    fs.create_dir(Path::new("/root")).await.unwrap();
+    fs.insert_file("/root/Lecture Notes.PDF", multi_page_pdf(2))
+        .await;
+    let project = Project::test(fs, [Path::new("/root/Lecture Notes.PDF")], cx).await;
+    let worktree_id = cx.update(|cx| project.read(cx).worktrees(cx).next().unwrap().read(cx).id());
+    let path = ProjectPath {
+        worktree_id,
+        path: util::rel_path::RelPath::empty_arc(),
+    };
+
+    let pdf_item = cx
+        .update(|cx| <PdfItem as project::ProjectItem>::try_open(&project, &path, cx))
+        .expect("a lone PDF should be claimed by the PDF viewer")
+        .await
+        .expect("a lone PDF should open");
+    cx.read(|cx| assert_eq!(pdf_item.read(cx).document().pages.len(), 2));
+}

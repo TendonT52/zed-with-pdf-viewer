@@ -32,10 +32,18 @@ pub struct PdfItem {
 
 impl EventEmitter<PdfItemEvent> for PdfItem {}
 
-pub fn is_pdf_path(path: &ProjectPath) -> bool {
-    path.path
-        .extension()
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+/// Whether `path` names a PDF file.
+///
+/// When a single file is opened on its own (from Finder or `zed file.pdf`), the file
+/// is the worktree root and its project path is empty, so the extension has to come
+/// from the worktree's absolute path instead.
+pub fn is_pdf_file(project: &Entity<Project>, path: &ProjectPath, cx: &App) -> bool {
+    let extension = path.path.extension().map(str::to_owned).or_else(|| {
+        let worktree = project.read(cx).worktree_for_id(path.worktree_id, cx)?;
+        let abs_path = worktree.read(cx).abs_path();
+        Some(abs_path.extension()?.to_str()?.to_owned())
+    });
+    extension.is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
 }
 
 /// Parses `bytes` in the Pdfium worker.
@@ -216,7 +224,7 @@ impl project::ProjectItem for PdfItem {
         path: &ProjectPath,
         cx: &mut App,
     ) -> Option<Task<Result<Entity<Self>>>> {
-        if !is_pdf_path(path) {
+        if !is_pdf_file(project, path, cx) {
             return None;
         }
         let project = project.clone();
