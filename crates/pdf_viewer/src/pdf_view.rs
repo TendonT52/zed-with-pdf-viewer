@@ -968,8 +968,12 @@ impl Item for PdfView {
     }
 
     fn tab_tooltip_text(&self, cx: &App) -> Option<SharedString> {
-        let abs_path = self.pdf_item.read(cx).abs_path(cx)?;
-        Some(abs_path.compact().to_string_lossy().into_owned().into())
+        let pdf_item = self.pdf_item.read(cx);
+        let path = pdf_item
+            .abs_path(cx)
+            .map(|abs_path| abs_path.compact())
+            .unwrap_or_else(|| pdf_item.file().full_path(cx));
+        Some(path.to_string_lossy().into_owned().into())
     }
 
     fn tab_content(&self, params: TabContentParams, _: &Window, cx: &App) -> AnyElement {
@@ -1014,10 +1018,10 @@ impl Item for PdfView {
     }
 
     fn tab_icon(&self, _: &Window, cx: &App) -> Option<Icon> {
-        let path = self.pdf_item.read(cx).abs_path(cx)?;
+        let path = self.pdf_item.read(cx).file().path().as_std_path();
         ItemSettings::get_global(cx)
             .file_icons
-            .then(|| FileIcons::get_icon(&path, cx))
+            .then(|| FileIcons::get_icon(path, cx))
             .flatten()
             .map(Icon::from_path)
     }

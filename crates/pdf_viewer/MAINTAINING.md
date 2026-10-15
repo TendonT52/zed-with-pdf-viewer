@@ -47,6 +47,7 @@ Notes:
 
 Tests that need Pdfium (the worker tests and the GPUI view tests) skip themselves with a message when the library isn't installed, so run `fetch-pdfium` first.
 The GPUI view tests in `pdf_view_tests.rs` open a generated PDF in a real `PdfView`, call `executor().allow_parking()` because tiles come from the real worker thread, and draw frames until no tiles are pending.
+The remote project tests run upstream's `HeadlessProject` in process behind `RemoteClient::fake_server`, as upstream's remote editing tests do; that dependency is why the tests enable `gpui_platform/runtime_shaders`.
 
 Visual scenarios render a generated three-page document at automatic zoom, at 300%, and fitted to page 2, through Zed's visual test runner, without showing a window:
 

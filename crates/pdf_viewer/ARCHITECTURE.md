@@ -41,14 +41,17 @@ Keep this list current; it is exactly the surface that can conflict when moving 
    The workspace asks every registered `ProjectItem` type, most recently registered first, whether it can open the path.
    `pdf_viewer::init` registers `PdfView` after the image viewer, so it is asked before the text editor would try and fail on binary content.
 2. `PdfItem::try_open` (`src/pdf_item.rs`) claims paths ending in `.pdf` (case-insensitive).
-   It loads the bytes through `Worktree::load_binary_file`, which only works for local worktrees; remote projects get an error view instead.
+   In a local worktree it loads the bytes through `Worktree::load_binary_file`.
+   In a remote (SSH, WSL, container) project it downloads the file with `Project::download_file` into a private temporary directory, waits until the project has written it with the size the remote worktree reports, reads it and deletes the directory.
+   This uses only requests the official remote server already handles, so the fork's server stays identical to upstream.
 3. The bytes go to the Pdfium worker (`kkpdf_zed::PdfWorker::open`), which parses the document once and keeps it open.
    It replies with a `DocumentInfo`: an id, the size of every page in points, and the title from the metadata.
 4. The workspace builds a `PdfView` (`src/pdf_view.rs`) for the `PdfItem` and shows it in a tab.
    If anything fails (missing Pdfium library, corrupt file), `for_broken_project_item` shows Zed's standard `InvalidItemView` with the error.
 
 `PdfItem` is shared by all views of the same file (split panes).
-It subscribes to its worktree; when the file changes on disk it waits 150 ms for writes to settle, re-reads and re-parses it, swaps in the new `DocumentInfo`, bumps `generation`, closes the old document in the worker and emits `PdfItemEvent::Reloaded`.
+It subscribes to its worktree; when the file changes on disk it waits 150 ms for writes to settle, re-reads (or, in remote projects, downloads again) and re-parses it, swaps in the new `DocumentInfo`, bumps `generation`, closes the old document in the worker and emits `PdfItemEvent::Reloaded`.
+The project tracks downloads by path, so a reload waits for the previous download of the file to finish before starting its own.
 A file that fails to parse mid-write is ignored; the next filesystem event retries.
 
 ## The engine: `crates/kkpdf_zed`
@@ -171,5 +174,5 @@ Unknown JSON fields are ignored, so older saved states keep loading.
 - No text selection, copy, or search inside PDFs yet.
   The engine already extracts text with bounding boxes (`PdfiumEngine::extract_document_details`), which is the starting point.
 - No outline or thumbnail sidebar, no clickable links.
-- Remote (SSH) projects can't open PDFs, because remote worktrees can't load binary files.
+- In remote projects every reload downloads the whole file again, and session restore doesn't reopen remote PDFs, because they have no local path to save.
 - Only macOS builds are published; Linux and Windows builds compile the same code but are untested.
