@@ -151,7 +151,13 @@ rm -rf "${dmg_source}"
 mkdir -p "${dmg_source}"
 cp -R "${app_path}" "${dmg_source}/"
 ln -s /Applications "${dmg_source}/Applications"
-hdiutil create -volname "${APP_NAME}" -srcfolder "${dmg_source}" -ov -format UDZO "${output_dir}/${dmg_name}"
+rm -f "${output_dir}/${dmg_name}"
+# `diskutil image` replaces `hdiutil create` from macOS 26; older systems only have the latter.
+if diskutil image create from --help >/dev/null 2>&1; then
+    diskutil image create from --format UDZO --volumeName "${APP_NAME}" "${dmg_source}" "${output_dir}/${dmg_name}"
+else
+    hdiutil create -volname "${APP_NAME}" -srcfolder "${dmg_source}" -ov -format UDZO "${output_dir}/${dmg_name}"
+fi
 rm -rf "${dmg_source}"
 echo "Created ${output_dir}/${dmg_name}"
 
