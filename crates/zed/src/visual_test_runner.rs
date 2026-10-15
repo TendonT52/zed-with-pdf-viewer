@@ -189,6 +189,7 @@ fn run_visual_tests(project_path: PathBuf, update_baseline: bool) -> Result<()> 
         outline_panel::init(cx);
         terminal_view::init(cx);
         image_viewer::init(cx);
+        pdf_viewer::init(cx);
         search::init(cx);
         lsp_locations::init(cx);
         cx.set_global(workspace::PaneSearchBarCallbacks {
@@ -387,6 +388,10 @@ fn run_visual_tests(project_path: PathBuf, update_baseline: bool) -> Result<()> 
     .log_err();
 
     cx.run_until_parked();
+
+    if std::env::var("VISUAL_TEST_ONLY").as_deref() == Ok("pdf_viewer") {
+        return run_pdf_viewer_visual_tests(workspace_window, &mut cx, update_baseline);
+    }
 
     // Track test results
     let mut passed = 0;
@@ -836,6 +841,12 @@ fn pixels_are_similar(a: &image::Rgba<u8>, b: &image::Rgba<u8>) -> bool {
 
 #[cfg(target_os = "macos")]
 fn create_test_files(project_path: &Path) {
+    std::fs::write(
+        project_path.join("sample.pdf"),
+        pdf_viewer::test_support::sample_document(),
+    )
+    .expect("Failed to write sample.pdf");
+
     // Create src directory
     let src_dir = project_path.join("src");
     std::fs::create_dir_all(&src_dir).expect("Failed to create src directory");
@@ -3592,4 +3603,99 @@ fn run_sidebar_duplicate_project_names_visual_tests(
     } else {
         Ok(TestResult::Passed)
     }
+}
+
+/// Opens a generated PDF and captures the viewer at automatic zoom, at high zoom,
+/// and fitted to the page. Run alone with `VISUAL_TEST_ONLY=pdf_viewer`.
+#[cfg(target_os = "macos")]
+fn run_pdf_viewer_visual_tests(
+    workspace_window: WindowHandle<Workspace>,
+    cx: &mut VisualTestAppContext,
+    update_baseline: bool,
+) -> Result<()> {
+    use pdf_viewer::{FitPage, PdfView, PdfViewToolbarControls};
+
+    let open_task = workspace_window.update(cx, |workspace, window, cx| {
+        let worktree = workspace
+            .project()
+            .read(cx)
+            .worktrees(cx)
+            .next()
+            .context("test project has no worktree")?;
+        let rel_path: std::sync::Arc<util::rel_path::RelPath> =
+            util::rel_path::rel_path("sample.pdf").into();
+        let project_path: project::ProjectPath = (worktree.read(cx).id(), rel_path).into();
+        anyhow::Ok(workspace.open_path(project_path, None, true, window, cx))
+    })??;
+    cx.background_executor.allow_parking();
+    let item = cx.foreground_executor.block_test(open_task)?;
+    let pdf_view = item
+        .downcast::<PdfView>()
+        .context("sample.pdf did not open in the PDF viewer")?;
+    workspace_window.update(cx, |workspace, window, cx| {
+        let toolbar_controls = cx.new(|_| PdfViewToolbarControls::new());
+        workspace.active_pane().update(cx, |pane, cx| {
+            pane.toolbar().update(cx, |toolbar, cx| {
+                toolbar.add_item(toolbar_controls, window, cx);
+            });
+        });
+    })?;
+
+    // Tiles come from the real Pdfium worker thread, so keep drawing frames until
+    // every visible tile has arrived and the raster resolution has settled.
+    let settle = |cx: &mut VisualTestAppContext| -> Result<()> {
+        let started = std::time::Instant::now();
+        loop {
+            cx.run_until_parked();
+            cx.update_window(workspace_window.into(), |_, window, cx| {
+                window.refresh();
+                window.draw(cx).clear(cx);
+            })?;
+            cx.run_until_parked();
+            let rendering = cx.read(|cx| pdf_view.read(cx).is_rendering());
+            if !rendering && started.elapsed() > Duration::from_millis(300) {
+                return Ok(());
+            }
+            anyhow::ensure!(
+                started.elapsed() < Duration::from_secs(20),
+                "PDF tiles never finished rendering"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    };
+
+    let mut failures = Vec::new();
+    let mut capture = |name: &str, cx: &mut VisualTestAppContext| -> Result<()> {
+        settle(cx)?;
+        println!("\n--- {name} ---");
+        match run_visual_test(name, workspace_window.into(), cx, update_baseline) {
+            Ok(_) => println!("✓ {name}"),
+            Err(error) => {
+                eprintln!("✗ {name}: {error}");
+                failures.push(name.to_string());
+            }
+        }
+        Ok(())
+    };
+
+    capture("pdf_viewer_default", cx)?;
+
+    workspace_window.update(cx, |_, _, cx| {
+        pdf_view.update(cx, |view, cx| {
+            view.set_zoom_mode(pdf_viewer::ZoomMode::Fixed(3.), None, cx);
+        });
+    })?;
+    capture("pdf_viewer_zoomed", cx)?;
+
+    // Actions dispatch at the end of the update, so jump pages once Fit Page has applied.
+    workspace_window.update(cx, |_, window, cx| {
+        window.dispatch_action(Box::new(FitPage), cx);
+    })?;
+    settle(cx)?;
+    pdf_view.update(cx, |view, cx| view.go_to_page(1, cx));
+    capture("pdf_viewer_fit_page", cx)?;
+
+    cx.background_executor.forbid_parking();
+    anyhow::ensure!(failures.is_empty(), "failed: {}", failures.join(", "));
+    Ok(())
 }
