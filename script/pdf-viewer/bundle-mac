@@ -8,6 +8,7 @@
 # itself into stock Zed, and it uses its own bundle identifier so it can be
 # installed next to the official Zed. Settings, themes and extensions are shared
 # with any other Zed on the machine; the workspace database is kept separate.
+# Remote projects use the official remote server of the same Zed release.
 #
 # Without Apple's certificates the app is ad-hoc signed. See
 # crates/pdf_viewer/MAINTAINING.md for how downloaded copies are opened.
@@ -58,6 +59,10 @@ output_dir="target/pdf-viewer"
 mkdir -p "${output_dir}"
 
 export ZED_RELEASE_CHANNEL=dev
+# The fork leaves the remote server untouched, so the app installs the official
+# server of the same Zed release on SSH, WSL and container hosts.
+# script/pdf-viewer/check-remote-server-parity keeps that true.
+export ZED_REMOTE_SERVER_RELEASE_CHANNEL=stable
 export ZED_BUNDLE=true
 export CARGO_BUNDLE_SKIP_BUILD=true
 export CXXFLAGS="-stdlib=libc++"

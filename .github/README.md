@@ -39,6 +39,7 @@ It tracks upstream Zed: every new stable Zed release is picked up automatically,
      If it prints "Operation not permitted", macOS is asking for permission to modify apps: allow your terminal under System Settings, Privacy & Security, App Management (or accept the prompt), then run it again.
 
 The app installs next to the official Zed and does not replace it.
+Remote projects over SSH, WSL and containers work as in official Zed: the app installs the official Zed remote server of the same release on the remote machine.
 Both share your settings, keymaps, themes and extensions in `~/.config/zed`.
 It does not auto-update itself; new versions appear on the releases page.
 

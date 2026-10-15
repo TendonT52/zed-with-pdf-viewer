@@ -83,7 +83,7 @@ impl DockerExecConnection {
         };
         let (release_channel, version, commit) = cx.update(|cx| {
             (
-                ReleaseChannel::global(cx),
+                super::remote_server_release_channel(ReleaseChannel::global(cx)),
                 AppVersion::global(cx),
                 AppCommitSha::try_global(cx),
             )

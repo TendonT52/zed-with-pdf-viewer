@@ -39,6 +39,9 @@ jobs:
       - name: Install Pdfium
         run: script/pdf-viewer/fetch-pdfium
 
+      - name: Remote server parity with upstream
+        run: script/pdf-viewer/check-remote-server-parity
+
       - name: Unit and integration tests
         run: cargo test --package pdf_viewer --package kkpdf-zed
 

@@ -78,6 +78,17 @@ macOS therefore quarantines downloaded copies; users clear it with "Open Anyway"
 On recent macOS that command fails with "Operation not permitted" until the terminal is allowed under Privacy & Security, App Management, because changing apps in /Applications is protected.
 With a Developer ID, signing and notarizing would follow upstream's `script/bundle-mac`.
 
+## Remote development
+
+Dev-channel builds of Zed never download a remote server, so out of the box the fork could not open SSH, WSL or container projects.
+`bundle-mac` sets `ZED_REMOTE_SERVER_RELEASE_CHANNEL=stable`, which makes the app install the official `zed-remote-server` of the Zed release it is built on, exactly as stock Zed does.
+The only fork code involved is `remote_server_release_channel` in `crates/remote/src/transport.rs` and its three call sites.
+
+That server is only correct while the fork leaves every crate it is built from untouched.
+`script/pdf-viewer/check-remote-server-parity` fails when a fork commit changes one of those crates, or pulls a dependency version into the server that upstream does not use.
+CI, the release workflow and the upstream sync all run it.
+If a future change has to touch the server, build and publish the fork's own `remote_server` with the release instead.
+
 ## Releasing
 
 Push a tag:

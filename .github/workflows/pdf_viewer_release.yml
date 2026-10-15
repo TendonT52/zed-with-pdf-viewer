@@ -49,6 +49,9 @@ jobs:
           fi
           git log -1 --oneline
 
+      - name: Remote server parity with upstream
+        run: script/pdf-viewer/check-remote-server-parity
+
       - name: Free disk space
         run: script/pdf-viewer/ci-free-disk
 
