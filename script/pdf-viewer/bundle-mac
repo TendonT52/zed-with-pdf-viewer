@@ -157,8 +157,10 @@ mkdir -p "${dmg_source}"
 cp -R "${app_path}" "${dmg_source}/"
 ln -s /Applications "${dmg_source}/Applications"
 rm -f "${output_dir}/${dmg_name}"
-# `diskutil image` replaces `hdiutil create` from macOS 26. macOS 15 has `diskutil image`
-# without `--volumeName`, so check for the option rather than the subcommand.
+# `diskutil image` replaces `hdiutil create` in macOS 26. macOS 15 has a `diskutil image`
+# without --volumeName, so check for that option rather than for the command.
+# The help text is captured first: under pipefail, `grep -q` closing the pipe early
+# could fail the check and pick the deprecated hdiutil on systems that have the option.
 diskutil_help="$(diskutil image create from --help 2>&1 || true)"
 if [[ "${diskutil_help}" == *"--volumeName"* ]]; then
     diskutil image create from --format UDZO --volumeName "${APP_NAME}" "${dmg_source}" "${output_dir}/${dmg_name}"
