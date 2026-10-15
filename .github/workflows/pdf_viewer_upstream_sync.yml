@@ -116,6 +116,7 @@ jobs:
       - name: Test the rebased branch
         if: steps.rebase.outputs.before != steps.rebase.outputs.after
         run: |
+          script/pdf-viewer/check-remote-server-parity
           cargo test --package pdf_viewer --package kkpdf-zed
           cargo check --package zed --features gpui_platform/runtime_shaders
 

@@ -11,6 +11,7 @@ use futures::{
     channel::mpsc::{Sender, UnboundedReceiver, UnboundedSender},
 };
 use gpui::{AppContext as _, AsyncApp, Task};
+use release_channel::ReleaseChannel;
 use rpc::proto::Envelope;
 use util::command::Child;
 
@@ -19,6 +20,17 @@ pub mod docker;
 pub mod mock;
 pub mod ssh;
 pub mod wsl;
+
+/// Returns the release channel whose remote server this build installs on remote hosts.
+///
+/// A build can set `ZED_REMOTE_SERVER_RELEASE_CHANNEL` at compile time to install the
+/// official server of another channel. Forks that rebrand a stable release as a "dev"
+/// build use this to get the matching stable server instead of failing to find one.
+fn remote_server_release_channel(client_channel: ReleaseChannel) -> ReleaseChannel {
+    option_env!("ZED_REMOTE_SERVER_RELEASE_CHANNEL")
+        .and_then(|channel| channel.parse().ok())
+        .unwrap_or(client_channel)
+}
 
 /// Parses the output of `uname -sm` to determine the remote platform.
 /// Takes the last line to skip possible shell initialization output.

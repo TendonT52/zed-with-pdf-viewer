@@ -31,13 +31,26 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
         with:
+          # The remote server parity check compares against the upstream release tag.
+          fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Free disk space
         run: script/pdf-viewer/ci-free-disk
 
+      # Saved only from the pdf-viewer branch so pull requests reuse it without
+      # filling the repository's cache quota with their own copies.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/pdf-viewer' }}
+
       - name: Install Pdfium
         run: script/pdf-viewer/fetch-pdfium
+
+      - name: Remote server parity with upstream
+        run: script/pdf-viewer/check-remote-server-parity
 
       - name: Unit and integration tests
         run: cargo test --package pdf_viewer --package kkpdf-zed

@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Checks that the fork's remote server is the same as upstream Zed's.
+#
+# The app installs the official zed-remote-server of the upstream release it is
+# built on (see ZED_REMOTE_SERVER_RELEASE_CHANNEL in bundle-mac). That is only
+# correct while the fork leaves every crate the server is built from untouched.
+# This script fails when a fork commit changes one of those crates, or resolves
+# one of the server's dependencies to a version upstream does not use.
+
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+
+# Fork changes in the server's crates that only run in the client, never in the server.
+allowed=(
+    crates/remote/src/transport.rs
+    crates/remote/src/transport/docker.rs
+    crates/remote/src/transport/ssh.rs
+    crates/remote/src/transport/wsl.rs
+)
+
+if ! upstream="$(script/pdf-viewer/upstream-version 2>/dev/null)"; then
+    echo "error: no upstream Zed release tag in this checkout; fetch full history with tags (fetch-depth: 0)" >&2
+    exit 1
+fi
+root="$(pwd)"
+tree="$(cargo tree --package remote_server --edges normal,build --target all --prefix none --format '{p}')"
+
+# Workspace crates in the server's dependency graph, as paths relative to the repo root.
+server_dirs="$(sed -n "s#.* (${root}/\(.*\))\$#\1#p" <<<"${tree}" | sort -u)"
+
+failed=false
+while IFS= read -r file; do
+    [[ -z "${file}" ]] && continue
+    for dir in ${server_dirs}; do
+        if [[ "${file}" == "${dir}/"* ]]; then
+            if [[ " ${allowed[*]} " != *" ${file} "* ]]; then
+                echo "error: ${file} differs from ${upstream} and is part of the remote server" >&2
+                failed=true
+            fi
+            break
+        fi
+    done
+done < <(git diff --name-only "${upstream}" HEAD)
+
+# Every package version the server uses must also be in upstream's lockfile.
+upstream_packages="$(git show "${upstream}:Cargo.lock" | awk -F'"' '/^name = /{n=$2} /^version = /{print n " v" $2}' | sort -u)"
+server_packages="$(awk '{print $1 " " $2}' <<<"${tree}" | sort -u)"
+while IFS= read -r package; do
+    echo "error: the remote server uses ${package}, which ${upstream} does not" >&2
+    failed=true
+done < <(comm -23 <(echo "${server_packages}") <(echo "${upstream_packages}"))
+
+if [[ "${failed}" == true ]]; then
+    echo "The official ${upstream} remote server no longer matches this build." >&2
+    echo "Keep fork changes out of these crates, or publish a remote server built from the fork." >&2
+    exit 1
+fi
+echo "Remote server matches upstream ${upstream}."
