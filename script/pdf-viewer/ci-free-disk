@@ -8,19 +8,23 @@ if [[ "${CI:-}" != "true" ]]; then
     exit 1
 fi
 
+# Runners start with about 40 GB free, which covers the first minutes of a build.
+# Deleting takes several minutes, so it runs in the background while the build
+# starts instead of holding up the job. The runner keeps it alive until the job ends.
 df -h /
+paths=(
+    "${HOME}/Library/Android"
+    /usr/local/share/dotnet
+    /usr/local/lib/node_modules
+    "${HOME}/.dotnet"
+    "${HOME}/hostedtoolcache/CodeQL"
+)
 active_xcode="$(xcode-select -p | sed 's|/Contents/Developer||')"
 for xcode in /Applications/Xcode*.app; do
     if [[ "${xcode}" != "${active_xcode}" ]]; then
-        sudo rm -rf "${xcode}" &
+        paths+=("${xcode}")
     fi
 done
-sudo rm -rf \
-    "${HOME}/Library/Android" \
-    /usr/local/share/dotnet \
-    /usr/local/lib/node_modules \
-    "${HOME}/.dotnet" \
-    "${HOME}/hostedtoolcache/CodeQL" &
-xcrun simctl delete all >/dev/null 2>&1 || true
-wait
-df -h /
+nohup sudo rm -rf "${paths[@]}" >/dev/null 2>&1 &
+nohup xcrun simctl delete all >/dev/null 2>&1 &
+echo "ci-free-disk: deleting ${#paths[@]} unused SDK folders in the background"

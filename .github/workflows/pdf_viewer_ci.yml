@@ -36,6 +36,13 @@ jobs:
       - name: Free disk space
         run: script/pdf-viewer/ci-free-disk
 
+      # Saved only from the pdf-viewer branch so pull requests reuse it without
+      # filling the repository's cache quota with their own copies.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/pdf-viewer' }}
+
       - name: Install Pdfium
         run: script/pdf-viewer/fetch-pdfium
 
