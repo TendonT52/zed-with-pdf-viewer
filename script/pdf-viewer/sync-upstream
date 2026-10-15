@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Replays the PDF viewer commits onto a newer upstream Zed release.
+#
+# Usage: script/pdf-viewer/sync-upstream [vX.Y.Z]
+#
+# Without an argument, targets the latest stable release of zed-industries/zed.
+# Run it on the pdf-viewer branch with a clean working tree. On success the
+# branch has been rewritten onto the new release (a backup branch is kept) and
+# nothing is pushed; push with `git push --force-with-lease`.
+#
+# Exit codes:
+#   0  rebased onto the new release, or already up to date
+#   1  unexpected error
+#   2  conflicts that need a human; the rebase was aborted and the branch is
+#      unchanged, and the conflicting files are printed
+
+set -euo pipefail
+
+# Parsed as one block so editing this file while it runs can't change what runs.
+{
+
+cd "$(dirname "$0")/../.."
+
+upstream_url="https://github.com/zed-industries/zed.git"
+if ! git remote get-url upstream >/dev/null 2>&1; then
+    git remote add upstream "${upstream_url}"
+fi
+
+if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+    echo "sync-upstream: commit or stash your changes first" >&2
+    exit 1
+fi
+
+# The newest stable release, ignoring pre-releases such as v1.2.0-pre.
+latest_stable_tag() {
+    git ls-remote --tags --refs upstream 'v*' \
+        | sed 's|.*refs/tags/||' \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sort -V \
+        | tail -n 1
+}
+
+current="$(script/pdf-viewer/upstream-version)"
+target="${1:-$(latest_stable_tag)}"
+
+if [[ "${current}" == "${target}" ]]; then
+    echo "Already based on ${target}"
+    exit 0
+fi
+if [[ "$(printf '%s\n%s\n' "${current}" "${target}" | sort -V | tail -n 1)" != "${target}" ]]; then
+    echo "sync-upstream: ${target} is older than the current base ${current}" >&2
+    exit 1
+fi
+
+echo "Moving the PDF viewer from ${current} to ${target}"
+git fetch --no-tags upstream "refs/tags/${target}:refs/tags/${target}"
+
+branch="$(git rev-parse --abbrev-ref HEAD)"
+backup="${branch}-before-${target}"
+git branch -f "${backup}" HEAD
+echo "Saved the current branch as ${backup}"
+
+resolve_lockfile_or_stop() {
+    local conflicts
+    conflicts="$(git diff --name-only --diff-filter=U)"
+    if [[ "${conflicts}" == "Cargo.lock" ]]; then
+        # Take upstream's lockfile and let Cargo add our crates back to it.
+        git checkout --ours Cargo.lock
+        cargo metadata --format-version 1 >/dev/null
+        git add Cargo.lock
+        return 0
+    fi
+    echo "sync-upstream: these files conflict with ${target} and need a manual rebase:" >&2
+    echo "${conflicts}" | sed 's/^/  /' >&2
+    git rebase --abort
+    return 1
+}
+
+if ! git rebase --onto "${target}" "${current}" "${branch}"; then
+    while [[ -d "$(git rev-parse --git-path rebase-merge)" || -d "$(git rev-parse --git-path rebase-apply)" ]]; do
+        if ! resolve_lockfile_or_stop; then
+            exit 2
+        fi
+        if ! GIT_EDITOR=true git rebase --continue; then
+            continue
+        fi
+    done
+fi
+
+# A rebase can leave Cargo.lock stale even without conflicts, for example when
+# upstream bumps a dependency that one of our crates shares.
+cargo metadata --format-version 1 >/dev/null
+if [[ -n "$(git status --porcelain Cargo.lock)" ]]; then
+    git add Cargo.lock
+    git commit --quiet -m "Update Cargo.lock for the PDF viewer"
+fi
+
+echo "Rebased ${branch} onto ${target}"
+
+exit
+}

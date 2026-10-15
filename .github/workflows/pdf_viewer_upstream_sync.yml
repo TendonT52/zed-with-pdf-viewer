@@ -1,0 +1,138 @@
+# Keeps the fork on the latest stable Zed release.
+#
+# Daily, checks zed-industries/zed for a newer stable release. If there is one,
+# replays the PDF viewer commits onto it with script/pdf-viewer/sync-upstream,
+# runs the tests, force-pushes the pdf-viewer branch and tags v<zed>-pdf.1, which
+# starts the release workflow. If the commits no longer apply, opens an issue.
+#
+# Needs a repository secret PDF_VIEWER_SYNC_TOKEN: a fine-grained personal access
+# token for this repository with "Contents", "Issues" and "Workflows" read and
+# write access. GitHub's built-in token can't push branches whose history
+# changes files under .github/workflows, which upstream releases usually do,
+# and pushes made with it don't start other workflows.
+name: PDF viewer - sync upstream
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: Upstream tag to move to (defaults to the latest stable release)
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pdf-viewer-upstream-sync
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  CARGO_PROFILE_DEV_BUILD_OVERRIDE_DEBUG: "0"
+
+jobs:
+  sync:
+    if: github.repository_owner != 'zed-industries'
+    runs-on: macos-15
+    timeout-minutes: 240
+    steps:
+      - name: Check for the sync token
+        env:
+          SYNC_TOKEN: ${{ secrets.PDF_VIEWER_SYNC_TOKEN }}
+        run: |
+          if [[ -z "${SYNC_TOKEN}" ]]; then
+            echo "::error::Add the PDF_VIEWER_SYNC_TOKEN secret (see crates/pdf_viewer/MAINTAINING.md)."
+            exit 1
+          fi
+
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: pdf-viewer
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add upstream https://github.com/zed-industries/zed.git
+
+      - name: Rebase onto the new upstream release
+        id: rebase
+        env:
+          REQUESTED_TAG: ${{ inputs.upstream_tag }}
+        run: |
+          before="$(script/pdf-viewer/upstream-version)"
+          echo "before=${before}" >> "$GITHUB_OUTPUT"
+          set +e
+          script/pdf-viewer/sync-upstream ${REQUESTED_TAG:+"$REQUESTED_TAG"} 2> sync-errors.txt
+          status=$?
+          set -e
+          cat sync-errors.txt >&2
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          echo "after=$(script/pdf-viewer/upstream-version)" >> "$GITHUB_OUTPUT"
+          if [[ ${status} -eq 1 ]]; then
+            exit 1
+          fi
+
+      - name: Report conflicts
+        if: steps.rebase.outputs.status == '2'
+        env:
+          GH_TOKEN: ${{ secrets.PDF_VIEWER_SYNC_TOKEN }}
+          BEFORE: ${{ steps.rebase.outputs.before }}
+          TARGET: ${{ inputs.upstream_tag }}
+        run: |
+          target="${TARGET:-$(git ls-remote --tags --refs upstream 'v*' | sed 's|.*refs/tags/||' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)}"
+          title="Upstream ${target}: PDF viewer commits need a manual rebase"
+          if gh issue list --state open --search "in:title \"${title}\"" --json number --jq 'length' | grep -qv '^0$'; then
+            echo "An issue is already open for ${target}"
+          else
+            {
+              echo "The daily sync could not replay the PDF viewer commits from \`${BEFORE}\` onto \`${target}\`."
+              echo
+              echo '```'
+              cat sync-errors.txt
+              echo '```'
+              echo
+              echo "Follow \"Moving to a new Zed release\" in crates/pdf_viewer/MAINTAINING.md."
+            } > issue.md
+            gh issue create --title "${title}" --body-file issue.md
+          fi
+          exit 1
+
+      - name: Install Pdfium
+        if: steps.rebase.outputs.before != steps.rebase.outputs.after
+        run: script/pdf-viewer/fetch-pdfium
+
+      - name: Free disk space
+        if: steps.rebase.outputs.before != steps.rebase.outputs.after
+        run: script/pdf-viewer/ci-free-disk
+
+      - name: Test the rebased branch
+        if: steps.rebase.outputs.before != steps.rebase.outputs.after
+        run: |
+          cargo test --package pdf_viewer --package kkpdf-zed
+          cargo check --package zed --features gpui_platform/runtime_shaders
+
+      - name: Push the branch and tag the release
+        if: steps.rebase.outputs.before != steps.rebase.outputs.after
+        env:
+          AFTER: ${{ steps.rebase.outputs.after }}
+          GH_TOKEN: ${{ secrets.PDF_VIEWER_SYNC_TOKEN }}
+        run: |
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          release_tag="${AFTER}-pdf.1"
+          git push origin "refs/tags/${AFTER}:refs/tags/${AFTER}"
+          git push --force-with-lease origin pdf-viewer
+          git tag "${release_tag}"
+          git push origin "refs/tags/${release_tag}"
+          # Upstream adds workflows over time; only ours should run in the fork.
+          gh workflow list --all --json name,path,state \
+            --jq '.[] | select(.state == "active") | select(.path | test("pdf_viewer_") | not) | .path' \
+            | while read -r workflow; do gh workflow disable "$(basename "${workflow}")"; done
+

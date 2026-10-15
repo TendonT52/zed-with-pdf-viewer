@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# Builds "Zed with PDF Viewer.app" and a DMG for macOS.
+#
+# Usage: script/pdf-viewer/bundle-mac [-i] [target-triple]
+#   -i  Also install the app into /Applications.
+#
+# The app is built on Zed's "dev" release channel, so it never auto-updates
+# itself into stock Zed, and it uses its own bundle identifier so it can be
+# installed next to the official Zed. Settings, themes and extensions are shared
+# with any other Zed on the machine; the workspace database is kept separate.
+#
+# Without Apple's certificates the app is ad-hoc signed. See
+# crates/pdf_viewer/MAINTAINING.md for how downloaded copies are opened.
+
+set -euo pipefail
+
+# Parsed as one block so editing this file while it runs can't change what runs.
+{
+
+APP_NAME="Zed with PDF Viewer"
+BUNDLE_IDENTIFIER="io.github.tendont52.zed-with-pdf-viewer"
+GIT_VERSION="v2.43.3"
+GIT_VERSION_SHA="fa29823"
+
+install=false
+while getopts 'ih' flag; do
+    case "${flag}" in
+        i) install=true ;;
+        h)
+            sed -n '2,13p' "$0"
+            exit 0
+            ;;
+        *) exit 1 ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+cd "$(dirname "$0")/../.."
+
+target_triple="${1:-$(rustc -vV | sed -n 's/^host: //p')}"
+case "${target_triple}" in
+    aarch64-apple-darwin)
+        arch_suffix="aarch64"
+        git_archive_arch="arm64"
+        ;;
+    x86_64-apple-darwin)
+        arch_suffix="x86_64"
+        git_archive_arch="x64"
+        ;;
+    *)
+        echo "bundle-mac: unsupported target ${target_triple}" >&2
+        exit 1
+        ;;
+esac
+
+version="$(sed -n 's/^version = "\(.*\)"/\1/p' crates/zed/Cargo.toml | head -n 1)"
+output_dir="target/pdf-viewer"
+mkdir -p "${output_dir}"
+
+export ZED_RELEASE_CHANNEL=dev
+export ZED_BUNDLE=true
+export CARGO_BUNDLE_SKIP_BUILD=true
+export CXXFLAGS="-stdlib=libc++"
+# Upstream release builds use thin LTO, one codegen unit and debug info, which
+# needs more memory and time than CI runners have. These overrides keep the
+# build within reach at a small runtime cost; set them yourself to go back.
+export CARGO_PROFILE_RELEASE_LTO="${CARGO_PROFILE_RELEASE_LTO:-false}"
+export CARGO_PROFILE_RELEASE_CODEGEN_UNITS="${CARGO_PROFILE_RELEASE_CODEGEN_UNITS:-16}"
+export CARGO_PROFILE_RELEASE_DEBUG="${CARGO_PROFILE_RELEASE_DEBUG:-0}"
+export CARGO_INCREMENTAL=0
+
+zed_features=()
+# Without Xcode's Metal compiler (a separate download since Xcode 26), shaders are
+# compiled when the app starts instead. PDF_VIEWER_RUNTIME_SHADERS=1 forces this.
+if [[ "${PDF_VIEWER_RUNTIME_SHADERS:-0}" == 1 ]] || ! xcrun --find metal >/dev/null 2>&1; then
+    echo "Building with runtime shader compilation"
+    zed_features=(--features gpui_platform/runtime_shaders)
+fi
+
+rustup target add "${target_triple}"
+
+echo "Building zed and cli for ${target_triple}"
+cargo build --release --package zed --target "${target_triple}" "${zed_features[@]+"${zed_features[@]}"}"
+cargo build --release --package cli --target "${target_triple}"
+
+pdfium_dir="target/${target_triple}/pdfium"
+script/pdf-viewer/fetch-pdfium "${target_triple}" "${pdfium_dir}"
+
+if [[ "$(cargo bundle --help 2>&1 | head -n 1)" != "cargo-bundle v0.6.1-zed" ]]; then
+    cargo install cargo-bundle --git https://github.com/zed-industries/cargo-bundle.git --branch zed-deploy
+fi
+
+echo "Creating application bundle"
+manifest="crates/zed/Cargo.toml"
+cp "${manifest}" "${manifest}.pdf-viewer-backup"
+restore_manifest() {
+    if [[ -f "${manifest}.pdf-viewer-backup" ]]; then
+        mv "${manifest}.pdf-viewer-backup" "${manifest}"
+    fi
+}
+trap restore_manifest EXIT
+python3 - "${manifest}" "${APP_NAME}" "${BUNDLE_IDENTIFIER}" <<'PY'
+import re, sys
+path, name, identifier = sys.argv[1:]
+text = open(path).read()
+header = "[package.metadata.bundle-dev]"
+start = text.index(header)
+end = text.find("\n[", start + len(header))
+section = text[start:end]
+section = section.replace(header, "[package.metadata.bundle]")
+section = re.sub(r'(?m)^name = ".*"$', f'name = "{name}"', section)
+section = re.sub(r'(?m)^identifier = ".*"$', f'identifier = "{identifier}"', section)
+open(path, "w").write(text[:start] + section + text[end:])
+PY
+app_path="$(cd crates/zed && cargo bundle --release --target "${target_triple}" --select-workspace-root | xargs)"
+restore_manifest
+trap - EXIT
+echo "Bundled ${app_path}"
+
+cp "target/${target_triple}/release/zed" "${app_path}/Contents/MacOS/zed"
+cp "target/${target_triple}/release/cli" "${app_path}/Contents/MacOS/cli"
+if [[ -f crates/zed/resources/Document.icns ]]; then
+    cp crates/zed/resources/Document.icns "${app_path}/Contents/Resources/Document.icns"
+fi
+
+rm -rf "${app_path}/Contents/Frameworks"
+mkdir -p "${app_path}/Contents/Frameworks"
+cp "${pdfium_dir}/libpdfium.dylib" "${app_path}/Contents/Frameworks/libpdfium.dylib"
+if [[ -f "${pdfium_dir}/PDFIUM_LICENSE" ]]; then
+    cp "${pdfium_dir}/PDFIUM_LICENSE" "${app_path}/Contents/Resources/PDFIUM_LICENSE"
+fi
+
+# Official builds ship git so source control works without Xcode's tools.
+git_dir="$(mktemp -d)"
+curl --fail --silent --show-error --location \
+    "https://github.com/desktop/dugite-native/releases/download/${GIT_VERSION}/dugite-native-${GIT_VERSION}-${GIT_VERSION_SHA}-macOS-${git_archive_arch}.tar.gz" \
+    | tar -xz -C "${git_dir}" bin/git
+mv "${git_dir}/bin/git" "${app_path}/Contents/MacOS/git"
+rm -rf "${git_dir}"
+
+echo "Signing (ad-hoc)"
+entitlements="$(mktemp)"
+sed '/com.apple.developer.associated-domains/,+1d' crates/zed/resources/zed.entitlements > "${entitlements}"
+codesign --force --deep --entitlements "${entitlements}" --sign - "${app_path}"
+rm -f "${entitlements}"
+codesign --verify --deep --strict "${app_path}"
+
+dmg_name="Zed-with-PDF-Viewer-${version}-${arch_suffix}.dmg"
+dmg_source="${output_dir}/dmg-${arch_suffix}"
+rm -rf "${dmg_source}"
+mkdir -p "${dmg_source}"
+cp -R "${app_path}" "${dmg_source}/"
+ln -s /Applications "${dmg_source}/Applications"
+hdiutil create -volname "${APP_NAME}" -srcfolder "${dmg_source}" -ov -format UDZO "${output_dir}/${dmg_name}"
+rm -rf "${dmg_source}"
+echo "Created ${output_dir}/${dmg_name}"
+
+if [[ "${install}" == true ]]; then
+    destination="/Applications/${APP_NAME}.app"
+    rm -rf "${destination}"
+    cp -R "${app_path}" "${destination}"
+    echo "Installed ${destination}"
+fi
+
+exit
+}

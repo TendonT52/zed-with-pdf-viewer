@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Frees disk space on GitHub's macOS runners, which ship with SDKs a Zed build
+# doesn't need. Building Zed needs roughly 20 GB of free space.
+set -euo pipefail
+
+if [[ "${CI:-}" != "true" ]]; then
+    echo "ci-free-disk: refusing to delete SDKs outside CI" >&2
+    exit 1
+fi
+
+df -h /
+active_xcode="$(xcode-select -p | sed 's|/Contents/Developer||')"
+for xcode in /Applications/Xcode*.app; do
+    if [[ "${xcode}" != "${active_xcode}" ]]; then
+        sudo rm -rf "${xcode}" &
+    fi
+done
+sudo rm -rf \
+    "${HOME}/Library/Android" \
+    /usr/local/share/dotnet \
+    /usr/local/lib/node_modules \
+    "${HOME}/.dotnet" \
+    "${HOME}/hostedtoolcache/CodeQL" &
+xcrun simctl delete all >/dev/null 2>&1 || true
+wait
+df -h /

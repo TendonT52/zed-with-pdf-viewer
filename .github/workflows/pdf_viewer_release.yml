@@ -1,0 +1,112 @@
+# Builds "Zed with PDF Viewer" DMGs and publishes them as a GitHub release.
+#
+# Runs when a tag like v1.24.2-pdf.1 is pushed, by hand from the Actions tab, or
+# from the upstream sync workflow after it moves the fork to a new Zed release.
+name: PDF viewer - release
+
+on:
+  push:
+    tags: ["v*-pdf.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, for example v1.24.2-pdf.1 (created from pdf-viewer if missing)
+        required: true
+  workflow_call:
+    inputs:
+      tag:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  bundle:
+    if: github.repository_owner != 'zed-industries'
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    runs-on: macos-15
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref || 'pdf-viewer' }}
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Check out the release tag if it exists
+        run: |
+          if git rev-parse --verify --quiet "refs/tags/${TAG}" >/dev/null; then
+            git checkout --detach "refs/tags/${TAG}"
+          fi
+          git log -1 --oneline
+
+      - name: Free disk space
+        run: script/pdf-viewer/ci-free-disk
+
+      - name: Build the app and DMG
+        env:
+          PDF_VIEWER_RUNTIME_SHADERS: "1"
+          CARGO_BUILD_JOBS: "3"
+        run: script/pdf-viewer/bundle-mac "${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dmg-${{ matrix.target }}
+          path: target/pdf-viewer/*.dmg
+          if-no-files-found: error
+
+  publish:
+    needs: bundle
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          ref: pdf-viewer
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: dmg-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          base="$(script/pdf-viewer/upstream-version)"
+          notes="$(mktemp)"
+          {
+            echo "Zed ${base#v} with a built-in PDF viewer."
+            echo
+            echo "Download the DMG for your Mac: \`aarch64\` for Apple Silicon, \`x86_64\` for Intel."
+            echo "The app is not notarized by Apple. After dragging it to Applications, open it once with"
+            echo
+            echo '```'
+            echo 'xattr -dr com.apple.quarantine "/Applications/Zed with PDF Viewer.app"'
+            echo '```'
+            echo
+            echo "Upstream release notes: https://github.com/zed-industries/zed/releases/tag/${base}"
+          } > "${notes}"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" dist/*.dmg --clobber
+          else
+            gh release create "${TAG}" dist/*.dmg \
+              --target pdf-viewer \
+              --title "Zed with PDF Viewer ${TAG#v}" \
+              --notes-file "${notes}" \
+              --latest
+          fi

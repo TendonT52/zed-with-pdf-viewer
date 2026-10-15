@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Downloads a checksum-verified Pdfium shared library for the PDF viewer.
+#
+# Usage: script/pdf-viewer/fetch-pdfium [target-triple] [output-dir]
+#
+# Defaults to the host triple and to ~/.local/share/kkpdf-zed/lib, which is one
+# of the places the engine looks in during development. Release bundles copy
+# the library into Contents/Frameworks instead.
+#
+# Binaries come from https://github.com/bblanchon/pdfium-binaries. To move to a
+# newer Pdfium, change PDFIUM_RELEASE and the checksums together.
+
+set -euo pipefail
+
+PDFIUM_RELEASE="chromium/8076"
+
+target_triple="${1:-$(rustc -vV | sed -n 's/^host: //p')}"
+output_dir="${2:-${HOME}/.local/share/kkpdf-zed/lib}"
+
+case "${target_triple}" in
+    aarch64-apple-darwin)
+        archive="pdfium-mac-arm64.tgz"
+        sha256="0d6781fe08906baff3d82c90953e519fbc4eb253fe76431e5ed53b157763b97c"
+        library="libpdfium.dylib"
+        ;;
+    x86_64-apple-darwin)
+        archive="pdfium-mac-x64.tgz"
+        sha256="40865f34642c34d82cc336132df9e0347133f4692cd46776647af160f9a5cca9"
+        library="libpdfium.dylib"
+        ;;
+    x86_64-unknown-linux-gnu)
+        archive="pdfium-linux-x64.tgz"
+        sha256="d9d67bc40af03aef4fe28a60b19b1086f28ace019c8c9caf19cb7fe3d14ceca3"
+        library="libpdfium.so"
+        ;;
+    aarch64-unknown-linux-gnu)
+        archive="pdfium-linux-arm64.tgz"
+        sha256="d7247b33ae5545615a5e877235dd97afc879e3a8805689684f528cae3339d352"
+        library="libpdfium.so"
+        ;;
+    x86_64-pc-windows-msvc)
+        archive="pdfium-win-x64.tgz"
+        sha256="808d36da9bc5a3104315fb307c80998121f565ee53953633bf33e80d7429e5ac"
+        library="pdfium.dll"
+        ;;
+    *)
+        echo "fetch-pdfium: unsupported target ${target_triple}" >&2
+        exit 1
+        ;;
+esac
+
+if [[ -f "${output_dir}/${library}.sha256" ]] \
+    && [[ "$(cat "${output_dir}/${library}.sha256")" == "${sha256}" ]] \
+    && [[ -f "${output_dir}/${library}" ]]; then
+    echo "Pdfium for ${target_triple} is already in ${output_dir}"
+    exit 0
+fi
+
+work_dir="$(mktemp -d)"
+trap 'rm -rf "${work_dir}"' EXIT
+
+url="https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_RELEASE//\//%2F}/${archive}"
+echo "Downloading ${url}"
+curl --fail --silent --show-error --location "${url}" --output "${work_dir}/${archive}"
+
+actual="$(shasum -a 256 "${work_dir}/${archive}" | awk '{print $1}')"
+if [[ "${actual}" != "${sha256}" ]]; then
+    echo "fetch-pdfium: checksum mismatch for ${archive}" >&2
+    echo "  expected ${sha256}" >&2
+    echo "  actual   ${actual}" >&2
+    exit 1
+fi
+
+tar -xzf "${work_dir}/${archive}" -C "${work_dir}"
+mkdir -p "${output_dir}"
+for candidate in "lib/${library}" "bin/${library}"; do
+    if [[ -f "${work_dir}/${candidate}" ]]; then
+        cp -f "${work_dir}/${candidate}" "${output_dir}/${library}"
+        cp -f "${work_dir}/LICENSE" "${output_dir}/PDFIUM_LICENSE" 2>/dev/null || true
+        echo "${sha256}" > "${output_dir}/${library}.sha256"
+        echo "Installed ${output_dir}/${library}"
+        exit 0
+    fi
+done
+
+echo "fetch-pdfium: ${library} not found in ${archive}" >&2
+exit 1
