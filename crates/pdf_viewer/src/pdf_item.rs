@@ -246,8 +246,37 @@ impl PdfItem {
         &self.file
     }
 
+    /// The file's absolute path on this computer, or `None` in remote projects.
     pub fn abs_path(&self, cx: &App) -> Option<PathBuf> {
         Some(self.file.as_local()?.abs_path(cx))
+    }
+
+    /// The file's absolute path on the machine that has it: this computer in
+    /// local projects, the remote host in remote ones. `open_abs_path` opens it
+    /// again in the same project.
+    pub fn path_on_host(&self, cx: &App) -> PathBuf {
+        self.file.worktree.read(cx).absolutize(&self.file.path)
+    }
+
+    /// Opens the PDF at `abs_path`, a path from `path_on_host`, in `project`.
+    pub async fn open_abs_path(
+        project: Entity<Project>,
+        abs_path: PathBuf,
+        cx: &mut AsyncApp,
+    ) -> Result<Entity<Self>> {
+        let (worktree, relative_path) = project
+            .update(cx, |project, cx| {
+                project.find_or_create_worktree(abs_path, false, cx)
+            })
+            .await
+            .context("path not found")?;
+        let project_path = ProjectPath {
+            worktree_id: worktree.read_with(cx, |worktree, _| worktree.id()),
+            path: relative_path,
+        };
+        cx.update(|cx| <Self as project::ProjectItem>::try_open(&project, &project_path, cx))
+            .context("not a PDF file")?
+            .await
     }
 
     pub fn project_path(&self, cx: &App) -> ProjectPath {

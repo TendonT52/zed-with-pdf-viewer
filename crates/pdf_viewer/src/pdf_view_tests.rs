@@ -110,7 +110,14 @@ async fn opens_a_pdf_opened_on_its_own(cx: &mut TestAppContext) {
         .expect("a lone PDF should be claimed by the PDF viewer")
         .await
         .expect("a lone PDF should open");
-    cx.read(|cx| assert_eq!(pdf_item.read(cx).document().pages.len(), 2));
+    cx.read(|cx| {
+        let pdf_item = pdf_item.read(cx);
+        assert_eq!(pdf_item.document().pages.len(), 2);
+        assert_eq!(
+            pdf_item.path_on_host(cx),
+            Path::new("/root/Lecture Notes.PDF")
+        );
+    });
 }
 
 #[gpui::test]
@@ -425,4 +432,59 @@ async fn an_empty_pdf_in_a_remote_project_reports_an_error(
         .err()
         .expect("an empty file should not open");
     assert_eq!(error.to_string(), "empty.pdf is empty");
+}
+
+#[gpui::test]
+async fn reopens_a_pdf_in_a_remote_project_from_its_saved_path(
+    cx: &mut TestAppContext,
+    server_cx: &mut TestAppContext,
+) {
+    if let Err(error) = kkpdf_zed::PdfWorker::global() {
+        eprintln!("skipping: {error}");
+        return;
+    }
+    init_test(cx);
+
+    let server_fs = FakeFs::new(server_cx.executor());
+    server_fs.create_dir(Path::new("/code/docs")).await.unwrap();
+    server_fs
+        .insert_file("/code/docs/doc.pdf", multi_page_pdf(3))
+        .await;
+    let project = remote_project(&server_fs, cx, server_cx).await;
+    let (worktree, _) = project
+        .update(cx, |project, cx| {
+            project.find_or_create_worktree("/code", true, cx)
+        })
+        .await
+        .unwrap();
+    cx.executor().run_until_parked();
+
+    cx.executor().allow_parking();
+    let path = ProjectPath {
+        worktree_id: cx.read(|cx| worktree.read(cx).id()),
+        path: rel_path("docs/doc.pdf").into(),
+    };
+    let pdf_item = cx
+        .update(|cx| <PdfItem as project::ProjectItem>::try_open(&project, &path, cx))
+        .expect("PDF files should be claimed by the PDF viewer")
+        .await
+        .expect("a PDF in a remote project should open");
+
+    // Session restore saves this path, so it must name the file on the host.
+    let saved_path = cx.read(|cx| pdf_item.read(cx).path_on_host(cx));
+    assert_eq!(saved_path, Path::new("/code/docs/doc.pdf"));
+
+    let restored = cx
+        .spawn({
+            let project = project.clone();
+            async move |mut cx| PdfItem::open_abs_path(project, saved_path, &mut cx).await
+        })
+        .await
+        .expect("the saved path should open again");
+    cx.read(|cx| {
+        let restored = restored.read(cx);
+        assert_eq!(restored.document().pages.len(), 3);
+        assert_eq!(restored.project_path(cx), path);
+        assert_eq!(project.read(cx).worktrees(cx).count(), 1);
+    });
 }

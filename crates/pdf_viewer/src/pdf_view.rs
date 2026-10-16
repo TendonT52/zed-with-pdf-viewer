@@ -19,7 +19,7 @@ use gpui::{
 use image::{Frame, RgbaImage};
 use kkpdf_zed::{PdfWorker, RenderTicket, RenderedTile, TileRequest};
 use language::File as _;
-use project::{Project, ProjectPath, git_store::GitStoreEvent};
+use project::{Project, git_store::GitStoreEvent};
 use serde::{Deserialize, Serialize};
 use settings::Settings;
 use smallvec::smallvec;
@@ -1132,22 +1132,7 @@ impl SerializableItem for PdfView {
             let (pdf_path, view_state) = db
                 .get_pdf(item_id, workspace_id)?
                 .context("no PDF path found")?;
-            let (worktree, relative_path) = project
-                .update(cx, |project, cx| {
-                    project.find_or_create_worktree(pdf_path.clone(), false, cx)
-                })
-                .await
-                .context("path not found")?;
-            let project_path = ProjectPath {
-                worktree_id: worktree.read_with(cx, |worktree, _| worktree.id()),
-                path: relative_path,
-            };
-            let pdf_item = cx
-                .update(|_, cx| {
-                    <PdfItem as project::ProjectItem>::try_open(&project, &project_path, cx)
-                })?
-                .context("not a PDF file")?
-                .await?;
+            let pdf_item = PdfItem::open_abs_path(project.clone(), pdf_path, cx).await?;
             let state = serde_json::from_str::<SerializedViewState>(&view_state).log_err();
             cx.update(|window, cx| {
                 cx.new(|cx| {
@@ -1179,7 +1164,9 @@ impl SerializableItem for PdfView {
         cx: &mut Context<Self>,
     ) -> Option<Task<anyhow::Result<()>>> {
         let workspace_id = workspace.database_id()?;
-        let pdf_path = self.pdf_item.read(cx).abs_path(cx)?;
+        // Save the path on the host rather than on this computer, so PDFs in
+        // remote projects are restored too.
+        let pdf_path = self.pdf_item.read(cx).path_on_host(cx);
         let view_state = serde_json::to_string(&self.serialized_state()).log_err()?;
         let db = PdfViewerDb::global(cx);
         Some(cx.background_spawn(async move {

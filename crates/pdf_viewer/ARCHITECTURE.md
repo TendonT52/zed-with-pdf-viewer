@@ -151,7 +151,7 @@ Actions live in the `pdf_viewer` namespace; key bindings use the `PdfViewer` key
 
 ### Persistence
 
-`SerializableItem` stores the absolute path and a small JSON state (`zoom_mode` and the page anchor at the top of the viewport) in the `pdf_viewers` table.
+`SerializableItem` stores the file's absolute path on the host (this computer, or the remote host in remote projects) and a small JSON state (`zoom_mode` and the page anchor at the top of the viewport) in the `pdf_viewers` table.
 The view emits `PdfViewEvent::StateChanged` 500 ms after the user stops scrolling or zooming, which tells the workspace to serialize.
 Unknown JSON fields are ignored, so older saved states keep loading.
 
@@ -174,5 +174,5 @@ Unknown JSON fields are ignored, so older saved states keep loading.
 - No text selection, copy, or search inside PDFs yet.
   The engine already extracts text with bounding boxes (`PdfiumEngine::extract_document_details`), which is the starting point.
 - No outline or thumbnail sidebar, no clickable links.
-- In remote projects every reload downloads the whole file again, and session restore doesn't reopen remote PDFs, because they have no local path to save.
+- In remote projects every reload downloads the whole file again.
 - Only macOS builds are published; Linux and Windows builds compile the same code but are untested.
