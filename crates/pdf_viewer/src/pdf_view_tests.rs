@@ -84,7 +84,7 @@ fn draw_until_rendered(view: &Entity<PdfView>, cx: &mut VisualTestContext) {
 }
 
 #[gpui::test]
-async fn opens_a_pdf_that_is_the_root_of_its_worktree(cx: &mut TestAppContext) {
+async fn opens_a_pdf_opened_on_its_own(cx: &mut TestAppContext) {
     if let Err(error) = kkpdf_zed::PdfWorker::global() {
         eprintln!("skipping: {error}");
         return;
@@ -92,21 +92,25 @@ async fn opens_a_pdf_that_is_the_root_of_its_worktree(cx: &mut TestAppContext) {
     init_test(cx);
     cx.executor().allow_parking();
 
+    // Opening a single file (Finder, `zed file.pdf`) makes the file itself the
+    // worktree root, so its path inside the worktree is empty.
     let fs = FakeFs::new(cx.executor());
     fs.create_dir(Path::new("/root")).await.unwrap();
-    fs.insert_file("/root/doc.pdf", multi_page_pdf(3)).await;
-    let project = Project::test(fs, [Path::new("/root/doc.pdf")], cx).await;
+    fs.insert_file("/root/Lecture Notes.PDF", multi_page_pdf(2))
+        .await;
+    let project = Project::test(fs, [Path::new("/root/Lecture Notes.PDF")], cx).await;
     let worktree_id = cx.update(|cx| project.read(cx).worktrees(cx).next().unwrap().read(cx).id());
     let path = ProjectPath {
         worktree_id,
-        path: rel_path("").into(),
+        path: util::rel_path::RelPath::empty_arc(),
     };
+
     let pdf_item = cx
         .update(|cx| <PdfItem as project::ProjectItem>::try_open(&project, &path, cx))
-        .expect("a PDF opened on its own should be claimed by the PDF viewer")
+        .expect("a lone PDF should be claimed by the PDF viewer")
         .await
-        .expect("PDF should open");
-    assert_eq!(cx.read(|cx| pdf_item.read(cx).document().pages.len()), 3);
+        .expect("a lone PDF should open");
+    cx.read(|cx| assert_eq!(pdf_item.read(cx).document().pages.len(), 2));
 }
 
 #[gpui::test]

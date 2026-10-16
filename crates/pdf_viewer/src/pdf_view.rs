@@ -1018,10 +1018,12 @@ impl Item for PdfView {
     }
 
     fn tab_icon(&self, _: &Window, cx: &App) -> Option<Icon> {
-        let path = self.pdf_item.read(cx).file().path().as_std_path();
+        // The full path includes the root name, which is the file name when the PDF
+        // was opened on its own and its project path is empty.
+        let path = self.pdf_item.read(cx).file().full_path(cx);
         ItemSettings::get_global(cx)
             .file_icons
-            .then(|| FileIcons::get_icon(path, cx))
+            .then(|| FileIcons::get_icon(&path, cx))
             .flatten()
             .map(Icon::from_path)
     }
@@ -1038,7 +1040,9 @@ impl Item for PdfView {
         let project = self.project.read(cx);
         let item = self.pdf_item.read(cx);
         let mut path = item.file().path().to_rel_path_buf();
-        if project.visible_worktrees(cx).count() > 1
+        // A file opened on its own is the worktree root, so its relative path is
+        // empty; the root name is the file name then.
+        if (path.is_empty() || project.visible_worktrees(cx).count() > 1)
             && let Some(worktree) = project.worktree_for_id(item.project_path(cx).worktree_id, cx)
         {
             path = worktree.read(cx).root_name().join(&path);
