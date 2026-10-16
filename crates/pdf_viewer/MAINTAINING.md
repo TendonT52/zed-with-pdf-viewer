@@ -71,7 +71,8 @@ script/pdf-viewer/bundle-mac -i         # also install into /Applications
 script/pdf-viewer/bundle-mac x86_64-apple-darwin
 ```
 
-The script builds `zed` and `cli` in release mode on the dev channel, bundles them with Zed's fork of `cargo-bundle` under the name "Zed with PDF Viewer" and identifier `io.github.tendont52.zed-with-pdf-viewer`, copies Pdfium into `Contents/Frameworks`, adds the same `git` binary official builds ship, signs ad-hoc, and writes `target/pdf-viewer/Zed-with-PDF-Viewer-<version>-<arch>.dmg`.
+The script builds `zed` and `cli` in release mode on the dev channel, bundles them with Zed's fork of `cargo-bundle` under the name "Zed with PDF Viewer" and identifier `io.github.tendont52.zed-with-pdf-viewer`, copies Pdfium into `Contents/Frameworks`, adds the same `git` binary official builds ship, signs ad-hoc, and writes `target/pdf-viewer/Zed-with-PDF-Viewer-<release>-<arch>.dmg`.
+`<release>` is the fork release, such as `1.24.2-pdf.3`, taken from `PDF_VIEWER_RELEASE_TAG` or the release tag on HEAD, and the Zed version when HEAD has no release tag.
 Release profile overrides (no LTO, 16 codegen units, no debug info) keep the build within CI runners' memory and time; override the `CARGO_PROFILE_RELEASE_*` variables to change that.
 
 The app is ad-hoc signed and not notarized, because notarization needs a paid Apple Developer account.

@@ -150,7 +150,12 @@ codesign --force --deep --entitlements "${entitlements}" --sign - "${app_path}"
 rm -f "${entitlements}"
 codesign --verify --deep --strict "${app_path}"
 
-dmg_name="Zed-with-PDF-Viewer-${version}-${arch_suffix}.dmg"
+# Name the DMG after the fork release (v1.24.2-pdf.3 -> 1.24.2-pdf.3) so downloads of
+# different releases of one Zed version can be told apart. The release workflow passes
+# the tag; local builds use the tag on HEAD, or the Zed version when HEAD has none.
+release_tag="${PDF_VIEWER_RELEASE_TAG:-$(git describe --tags --exact-match --match 'v*-pdf.*' HEAD 2>/dev/null || true)}"
+release_name="${release_tag#v}"
+dmg_name="Zed-with-PDF-Viewer-${release_name:-${version}}-${arch_suffix}.dmg"
 dmg_source="${output_dir}/dmg-${arch_suffix}"
 rm -rf "${dmg_source}"
 mkdir -p "${dmg_source}"

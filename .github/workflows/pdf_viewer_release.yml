@@ -59,6 +59,7 @@ jobs:
         env:
           PDF_VIEWER_RUNTIME_SHADERS: "1"
           CARGO_BUILD_JOBS: "3"
+          PDF_VIEWER_RELEASE_TAG: ${{ env.TAG }}
         run: script/pdf-viewer/bundle-mac "${{ matrix.target }}"
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -91,9 +92,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           base="$(script/pdf-viewer/upstream-version)"
+          # The release is the tag when it exists, otherwise pdf-viewer, which the
+          # bundle job built and which `gh release create` tags below.
+          release_commit="$(git rev-parse --verify --quiet "refs/tags/${TAG}^{commit}" || git rev-parse HEAD)"
+          previous="$(git tag --list 'v*-pdf.*' --sort=-v:refname --merged "${release_commit}" | grep -vxF "${TAG}" | head -n 1 || true)"
           notes="$(mktemp)"
           {
             echo "Zed ${base#v} with a built-in PDF viewer."
+            echo
+            # Fork releases of one Zed version share history, so list what changed
+            # since the previous one. A move to a new Zed version rebases every fork
+            # commit, so listing them would repeat the whole fork.
+            if [[ -n "${previous}" && "${previous%-pdf.*}" == "${base}" ]]; then
+              echo "## Changes since ${previous#v}"
+              echo
+              git log --no-merges --format='- %s' "${previous}..${release_commit}"
+            else
+              echo "## Changes"
+              echo
+              echo "- Moved to Zed ${base#v}."
+            fi
+            echo
+            echo "## Install"
             echo
             echo "Download the DMG for your Mac: \`aarch64\` for Apple Silicon, \`x86_64\` for Intel."
             echo "The app is not notarized by Apple, so macOS blocks the first launch."
