@@ -15,6 +15,7 @@ It tracks upstream Zed: every new stable Zed release is picked up automatically,
 ## Features
 
 - Opens `.pdf` files from the project panel, the file finder, or the command line like any other file.
+- Works in remote projects over SSH, WSL and containers: PDFs on the remote machine open, live reload and come back after a restart like local ones.
 - Continuous scrolling with sharp text at any zoom level, including Retina displays.
 - Zoom with Cmd + scroll, trackpad pinch, or the toolbar, from 10% to 1600%, anchored at the cursor.
 - Fit width, fit page, and actual size modes.
