@@ -19,7 +19,7 @@ use gpui::{
 use image::{Frame, RgbaImage};
 use kkpdf_zed::{PdfWorker, RenderTicket, RenderedTile, TileRequest};
 use language::File as _;
-use project::{Project, ProjectPath, git_store::GitStoreEvent};
+use project::{Project, git_store::GitStoreEvent};
 use serde::{Deserialize, Serialize};
 use settings::Settings;
 use smallvec::smallvec;
@@ -968,8 +968,12 @@ impl Item for PdfView {
     }
 
     fn tab_tooltip_text(&self, cx: &App) -> Option<SharedString> {
-        let abs_path = self.pdf_item.read(cx).abs_path(cx)?;
-        Some(abs_path.compact().to_string_lossy().into_owned().into())
+        let pdf_item = self.pdf_item.read(cx);
+        let path = pdf_item
+            .abs_path(cx)
+            .map(|abs_path| abs_path.compact())
+            .unwrap_or_else(|| pdf_item.file().full_path(cx));
+        Some(path.to_string_lossy().into_owned().into())
     }
 
     fn tab_content(&self, params: TabContentParams, _: &Window, cx: &App) -> AnyElement {
@@ -1014,7 +1018,9 @@ impl Item for PdfView {
     }
 
     fn tab_icon(&self, _: &Window, cx: &App) -> Option<Icon> {
-        let path = self.pdf_item.read(cx).abs_path(cx)?;
+        // The full path includes the root name, which is the file name when the PDF
+        // was opened on its own and its project path is empty.
+        let path = self.pdf_item.read(cx).file().full_path(cx);
         ItemSettings::get_global(cx)
             .file_icons
             .then(|| FileIcons::get_icon(&path, cx))
@@ -1126,22 +1132,7 @@ impl SerializableItem for PdfView {
             let (pdf_path, view_state) = db
                 .get_pdf(item_id, workspace_id)?
                 .context("no PDF path found")?;
-            let (worktree, relative_path) = project
-                .update(cx, |project, cx| {
-                    project.find_or_create_worktree(pdf_path.clone(), false, cx)
-                })
-                .await
-                .context("path not found")?;
-            let project_path = ProjectPath {
-                worktree_id: worktree.read_with(cx, |worktree, _| worktree.id()),
-                path: relative_path,
-            };
-            let pdf_item = cx
-                .update(|_, cx| {
-                    <PdfItem as project::ProjectItem>::try_open(&project, &project_path, cx)
-                })?
-                .context("not a PDF file")?
-                .await?;
+            let pdf_item = PdfItem::open_abs_path(project.clone(), pdf_path, cx).await?;
             let state = serde_json::from_str::<SerializedViewState>(&view_state).log_err();
             cx.update(|window, cx| {
                 cx.new(|cx| {
@@ -1173,7 +1164,9 @@ impl SerializableItem for PdfView {
         cx: &mut Context<Self>,
     ) -> Option<Task<anyhow::Result<()>>> {
         let workspace_id = workspace.database_id()?;
-        let pdf_path = self.pdf_item.read(cx).abs_path(cx)?;
+        // Save the path on the host rather than on this computer, so PDFs in
+        // remote projects are restored too.
+        let pdf_path = self.pdf_item.read(cx).path_on_host(cx);
         let view_state = serde_json::to_string(&self.serialized_state()).log_err()?;
         let db = PdfViewerDb::global(cx);
         Some(cx.background_spawn(async move {

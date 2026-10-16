@@ -47,6 +47,7 @@ Notes:
 
 Tests that need Pdfium (the worker tests and the GPUI view tests) skip themselves with a message when the library isn't installed, so run `fetch-pdfium` first.
 The GPUI view tests in `pdf_view_tests.rs` open a generated PDF in a real `PdfView`, call `executor().allow_parking()` because tiles come from the real worker thread, and draw frames until no tiles are pending.
+The remote project tests run upstream's `HeadlessProject` in process behind `RemoteClient::fake_server`, as upstream's remote editing tests do; that dependency is why the tests enable `gpui_platform/runtime_shaders`.
 
 Visual scenarios render a generated three-page document at automatic zoom, at 300%, and fitted to page 2, through Zed's visual test runner, without showing a window:
 
@@ -82,7 +83,8 @@ With a Developer ID, signing and notarizing would follow upstream's `script/bund
 
 Dev-channel builds of Zed never download a remote server, so out of the box the fork could not open SSH, WSL or container projects.
 `bundle-mac` sets `ZED_REMOTE_SERVER_RELEASE_CHANNEL=stable`, which makes the app install the official `zed-remote-server` of the Zed release it is built on, exactly as stock Zed does.
-The only fork code involved is `remote_server_release_channel` in `crates/remote/src/transport.rs` and its three call sites.
+The only fork code involved is `remote_server_release` in `crates/remote/src/transport.rs` and its three call sites.
+The server is named after the upstream version only (`zed-remote-server-stable-1.24.2`), so every fork build of one Zed release shares the server already installed on a host.
 
 That server is only correct while the fork leaves every crate it is built from untouched.
 `script/pdf-viewer/check-remote-server-parity` fails when a fork commit changes one of those crates, or pulls a dependency version into the server that upstream does not use.

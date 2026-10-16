@@ -32,6 +32,7 @@ serde.workspace = true
 serde_json.workspace = true
 settings.workspace = true
 smallvec.workspace = true
+tempfile.workspace = true
 theme.workspace = true
 theme_settings.workspace = true
 ui.workspace = true
@@ -40,11 +41,28 @@ workspace.workspace = true
 worktree.workspace = true
 
 [dev-dependencies]
+client = { workspace = true, features = ["test-support"] }
+clock = { workspace = true, features = ["test-support"] }
 db = { workspace = true, features = ["test-support"] }
 editor = { workspace = true, features = ["test-support"] }
+extension.workspace = true
 fs.workspace = true
 gpui = { workspace = true, features = ["test-support"] }
+# `remote_server` pulls in the native platform; compile its Metal shaders at
+# runtime so tests build without Xcode's Metal compiler, like the rest of the fork.
+gpui_platform = { workspace = true, features = ["runtime_shaders"] }
+http_client = { workspace = true, features = ["test-support"] }
+language = { workspace = true, features = ["test-support"] }
+node_runtime.workspace = true
 project = { workspace = true, features = ["test-support"] }
+release_channel.workspace = true
+remote = { workspace = true, features = ["test-support"] }
+remote_server = { workspace = true, features = ["test-support"] }
+semver.workspace = true
 settings = { workspace = true, features = ["test-support"] }
 theme = { workspace = true, features = ["test-support"] }
 workspace = { workspace = true, features = ["test-support"] }
+
+[package.metadata.cargo-shear]
+# Only enables runtime shaders for the native platform `remote_server` pulls into tests.
+ignored = ["gpui_platform"]
